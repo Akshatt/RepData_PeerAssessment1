@@ -1,0 +1,150 @@
+---
+title: "Exploring NOAA's storm database"
+author: "Akshat jain"
+date: "04/06/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+```
+
+## **Synopsis**
+
+Every climatic event has a different range of consequences related to public health and economy. Some have severe effects while some can be directly ignored. 
+Hence, It is very important to study the general trend of these weather events on health and economy, so that precautions can be taken. 
+
+In this case study, we have taken the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database. It tracks characteristics of major storms and weather events in the United States, including when and where they occur, as well as estimates of any fatalities, injuries, and property damage.
+
+## **Data Processing** 
+
+### Loading the required libraries
+```{r loading_libraries}
+library(ggplot2)
+library(dplyr)
+```
+
+### Loading Data
+
+The data will be loaded into R if it isn't already. 
+```{r loading_data, cache=TRUE}
+if(!exists("stormData")){
+    stormData <- read.csv(file="repdata_data_StormData.csv.bz2")    
+}
+```
+Initial exploring of stormData 
+```{r summary}
+dim(stormData)
+str(stormData)
+```
+
+### Discovering relations between the various Events and Public Health and Economy 
+The column related with Events type is EVTYPE. 
+
+#### Impact on Health
+
+For the health impact, we consider following columns:  
+
+1. FATALITIES: Number of deaths(apporx.)    
+2. INJURIES: Number of Injured People (approx.)
+
+#### Impact on Economy
+
+For the economic impact, we consider following columns:  
+
+1. PROPDMG: Property Damages      
+2. PROPDMGEXP: Property Damage Unit Value  
+3. CROPDMG: Crop Damages  
+4. CROPDMGEXP: Crop Damage Unit Value  
+
+### Cleaning the Dataset
+
+The above mentioned columns are extracted from stormData to get a smaller focused dataset. 
+```{r subset}
+req <- c("EVTYPE", "FATALITIES", "INJURIES", "PROPDMG", "PROPDMGEXP", "CROPDMG", "CROPDMGEXP")
+req_stormData <- stormData[, req]
+dim(req_stormData)
+```
+
+The economic damages are given in two parts for property and crop each. The PROPDMGEXP and CROPDMGEXP hold the exponential power of 10 to which PROPDMG and CROPDMG is mulitplied.  
+
+The characters in PROPDMGEXP and CROPDMGEXP both follow the same notion stated below   
+
+* H/h = Hundred dollars (10^2)    
+* K/k = Thousand dollars (10^3)   
+* M/m = Million dollars (10^6)  
+* B/b = Billion dollars (10^9)  
+* rest would be a dollar each (10^0)   
+
+```{r USDcalc}
+
+# function to add appropriate exponential value in place of letters
+exp_unit <- function(dmgexp){
+    
+    dmgexp[grep("h|H", dmgexp, ignore.case = TRUE)] <- "2"
+    dmgexp[grep("k|K", dmgexp, ignore.case = TRUE)] <- "3"     
+    dmgexp[grep("m|M", dmgexp, ignore.case = TRUE)] <- "6"
+    dmgexp[grep("b|B", dmgexp, ignore.case = TRUE)] <- "9"
+    dmgexp[!grep("h|H|k|K|b|B|M|m", dmgexp, ignore.case = TRUE)] <- "0"
+    dmgexp <- as.numeric(as.character(dmgexp))
+}
+
+# Calculating Total cost for each entry in dataset
+req_stormData <- req_stormData %>% mutate(propusd = PROPDMG * 10^exp_unit(PROPDMGEXP)) %>% mutate(cropusd = CROPDMG * 10^exp_unit(CROPDMGEXP)) %>% mutate(totalusd = cropusd + propusd) 
+
+
+```
+
+
+### Analysis
+
+Going through fatalities for each Event type
+```{r health:fatalities}
+# Grouping by all the occurences of every event while summing up their fatalities
+total_fatalities <- req_stormData %>% select(EVTYPE, FATALITIES) %>% group_by(EVTYPE) %>% summarise(total_fatalities = sum(FATALITIES)) %>% arrange(-total_fatalities)
+head(total_fatalities, 10)
+```
+
+Going through injuries for each Event type
+```{r health:injuries}
+# Grouping by all the occurences of every event while summing up their injuries
+total_injuries <- req_stormData %>% select(EVTYPE,INJURIES) %>% group_by(EVTYPE) %>% summarise(total_injuries = sum(INJURIES)) %>% arrange(-total_injuries)
+head(total_injuries, 10)
+```
+
+Going through total USD cost for each Event type 
+```{r economic}
+# Grouping by all the occurences of every event while summing up their total cost
+total_cost <- req_stormData %>% select(EVTYPE, totalusd) %>% group_by(EVTYPE) %>% summarise(total_cost= sum(totalusd,na.rm = TRUE)) %>% arrange(-total_cost) 
+head(total_cost, 10)
+```
+
+
+## **Results** 
+
+### Across the United States, which types of events are most harmful with respect to population health?
+
+```{r health plot}
+plot1 <- ggplot(total_injuries[1:10,], aes(x = EVTYPE, y = total_injuries)) + 
+    geom_bar(stat = "identity") + 
+    labs(x = "Event Type", y = "Number of Injuries", title = "Events with Highest Injuries")+theme(axis.text=element_text(size=5))
+plot1
+
+plot2 <- ggplot(total_fatalities[1:10,], aes(x = EVTYPE, y = total_fatalities)) +
+    geom_bar(stat = "identity") + 
+    labs(x = "Event Type", y = "Number of Fatalities", title = "Events with Highest Fatalities")+theme(axis.text=element_text(size=5))
+plot2
+```
+
+As depicted by the above figures, **Tornadoes** contribute highest in both the fatality and injury count.    
+
+### Across the United States, which types of events have the greatest economic consequences?
+
+```{r economy plot}
+plot <- ggplot(total_cost[1:10,], aes(x = EVTYPE, y = total_cost/10^9)) +
+    geom_bar(stat = "identity") + 
+    labs(x = "Event Type", y = "Total Cost (per Billion USD$)", title = "Events with Highest Economic Impact")+theme(axis.text=element_text(size=5))
+plot
+```
+
+As depicted by the above figure, **Floods** are responsible for the highest economic impact!  
